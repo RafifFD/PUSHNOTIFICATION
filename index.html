@@ -93,6 +93,11 @@
             color: #856404;
         }
 
+        .badge-info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
         button {
             width: 100%;
             padding: 15px;
@@ -136,6 +141,15 @@
 
         .btn-danger:hover:not(:disabled) {
             background: #c82333;
+        }
+
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-success:hover:not(:disabled) {
+            background: #218838;
         }
 
         .info-box {
@@ -184,19 +198,49 @@
             display: block;
         }
 
-        .warning-box {
+        .setup-section {
             background: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 15px;
+            border: 2px dashed #ffc107;
+            border-radius: 10px;
+            padding: 20px;
             margin-bottom: 20px;
-            border-radius: 5px;
-            font-size: 13px;
+            text-align: center;
+        }
+
+        .setup-section h3 {
+            color: #856404;
+            margin-bottom: 10px;
+        }
+
+        .setup-section p {
+            color: #856404;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .step-indicator {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-top: 15px;
+        }
+
+        .step {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            background: #fff;
+            border: 2px solid #ffc107;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
             color: #856404;
         }
 
-        .warning-box strong {
-            display: block;
-            margin-bottom: 5px;
+        .step.active {
+            background: #ffc107;
+            color: white;
         }
     </style>
 </head>
@@ -206,14 +250,18 @@
         <h1>Push Notification System</h1>
         <p class="subtitle">Notifikasi akan muncul setiap 2 jam sekali</p>
 
-        <div class="warning-box" id="setupWarning">
-            <strong>⚠️ Perlu Setup Awal:</strong>
-            Untuk Service Worker bekerja, simpan file ini dan buat file <code>sw.js</code> di folder yang sama. Klik tombol di bawah untuk download file Service Worker.
+        <div class="setup-section" id="setupSection">
+            <h3>📋 Setup Diperlukan</h3>
+            <p>Klik tombol di bawah untuk setup Service Worker otomatis</p>
+            <button class="btn-success" onclick="autoSetup()">
+                🚀 Auto Setup (1 Klik)
+            </button>
+            <div class="step-indicator">
+                <div class="step" id="step1">1</div>
+                <div class="step" id="step2">2</div>
+                <div class="step" id="step3">3</div>
+            </div>
         </div>
-
-        <button class="btn-primary" id="downloadSwBtn" onclick="downloadServiceWorker()">
-            📥 Download Service Worker (sw.js)
-        </button>
 
         <div class="status">
             <div class="status-item">
@@ -222,7 +270,7 @@
             </div>
             <div class="status-item">
                 <span class="status-label">Service Worker:</span>
-                <span class="status-badge badge-warning" id="swStatus">Checking...</span>
+                <span class="status-badge badge-warning" id="swStatus">Waiting...</span>
             </div>
             <div class="status-item">
                 <span class="status-label">Notifikasi Terkirim:</span>
@@ -242,17 +290,17 @@
 
         <div class="info-box">
             <strong>ℹ️ Cara Kerja:</strong>
-            1. Download file sw.js dan simpan di folder yang sama<br>
+            1. Klik "Auto Setup" untuk install Service Worker<br>
             2. Klik "Aktifkan Notifikasi" dan izinkan akses<br>
             3. Notifikasi akan muncul setiap 2 jam sekali<br>
-            4. Notifikasi tetap berjalan walau web ditutup<br>
-            5. Bekerja di semua device (Android, iOS, Desktop)
+            4. Notifikasi tetap berjalan walau tab/browser ditutup<br>
+            5. Bekerja di Android, iOS (Safari 16.4+), Desktop
         </div>
 
         <div class="notification-log">
             <div class="log-title">📋 Log Notifikasi:</div>
             <div id="logContainer">
-                <div class="log-item">Belum ada notifikasi yang dikirim</div>
+                <div class="log-item">Menunggu setup...</div>
             </div>
         </div>
     </div>
@@ -261,52 +309,39 @@
         let notificationCount = 0;
         let notificationTimer = null;
 
-        // Service Worker Code untuk di-download
-        const SERVICE_WORKER_CODE = `// Service Worker untuk Push Notification
-const NOTIFICATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 jam dalam milidetik
-const NOTIFICATION_TAG = 'scheduled-notification';
+        // Service Worker Code
+        const SERVICE_WORKER_CODE = `
+// Service Worker untuk Push Notification
+const NOTIFICATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 jam
+let intervalId = null;
 
-// Event saat service worker diinstall
 self.addEventListener('install', (event) => {
-    console.log('Service Worker installing...');
+    console.log('[SW] Installing...');
     self.skipWaiting();
 });
 
-// Event saat service worker aktif
 self.addEventListener('activate', (event) => {
-    console.log('Service Worker activated');
+    console.log('[SW] Activated');
     event.waitUntil(clients.claim());
 });
 
-// Fungsi untuk mengirim notifikasi
 async function sendNotification() {
     const options = {
-        body: 'Ini adalah notifikasi otomatis setiap 2 jam. Klik untuk membuka aplikasi.',
+        body: 'Ini notifikasi otomatis setiap 2 jam. Klik untuk buka aplikasi.',
         icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
         badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
         vibrate: [200, 100, 200],
-        tag: NOTIFICATION_TAG,
+        tag: 'scheduled-notification',
         requireInteraction: false,
         data: {
             timestamp: Date.now(),
             url: self.location.origin
-        },
-        actions: [
-            {
-                action: 'open',
-                title: 'Buka Aplikasi'
-            },
-            {
-                action: 'close',
-                title: 'Tutup'
-            }
-        ]
+        }
     };
 
     try {
         await self.registration.showNotification('🔔 Notifikasi Terjadwal', options);
         
-        // Broadcast ke semua clients
         const allClients = await clients.matchAll();
         allClients.forEach(client => {
             client.postMessage({
@@ -314,191 +349,219 @@ async function sendNotification() {
                 timestamp: Date.now()
             });
         });
-
-        console.log('Notification sent at', new Date().toLocaleString());
+        
+        console.log('[SW] Notification sent:', new Date().toLocaleString());
     } catch (error) {
-        console.error('Error showing notification:', error);
+        console.error('[SW] Error:', error);
     }
 }
 
-// Handle message dari main thread
+function startSchedule() {
+    if (intervalId) clearInterval(intervalId);
+    sendNotification(); // Kirim pertama kali
+    intervalId = setInterval(() => {
+        sendNotification();
+    }, NOTIFICATION_INTERVAL);
+    console.log('[SW] Schedule started');
+}
+
+function stopSchedule() {
+    if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+    }
+    self.registration.getNotifications().then(notifications => {
+        notifications.forEach(notification => notification.close());
+    });
+    console.log('[SW] Schedule stopped');
+}
+
 self.addEventListener('message', (event) => {
-    console.log('SW received message:', event.data);
+    console.log('[SW] Message received:', event.data.type);
     
     if (event.data.type === 'start-notifications') {
-        sendNotification(); // Kirim notifikasi pertama
+        startSchedule();
     } else if (event.data.type === 'test-notification') {
         sendNotification();
     } else if (event.data.type === 'stop-notifications') {
-        // Clear semua notifikasi yang ada
-        self.registration.getNotifications().then(notifications => {
-            notifications.forEach(notification => notification.close());
-        });
+        stopSchedule();
     }
 });
 
-// Handle klik pada notifikasi
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    
-    if (event.action === 'close') {
-        return;
-    }
-    
     event.waitUntil(
-        clients.matchAll({ type: 'window', includeUncontrolled: true })
-            .then((clientList) => {
-                // Cek apakah ada window yang sudah terbuka
-                for (let client of clientList) {
-                    if ('focus' in client) {
-                        return client.focus();
-                    }
-                }
-                // Buka window baru jika tidak ada
-                if (clients.openWindow) {
-                    return clients.openWindow('/');
-                }
-            })
+        clients.matchAll({ type: 'window' }).then((clientList) => {
+            for (let client of clientList) {
+                if ('focus' in client) return client.focus();
+            }
+            if (clients.openWindow) return clients.openWindow('/');
+        })
     );
-});
-
-// Handle notifikasi ditutup
-self.addEventListener('notificationclose', (event) => {
-    console.log('Notification closed:', event.notification.tag);
 });
 `;
 
-        function downloadServiceWorker() {
-            const blob = new Blob([SERVICE_WORKER_CODE], { type: 'application/javascript' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'sw.js';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            addLog('✅ File sw.js berhasil didownload. Simpan di folder yang sama dengan HTML ini.');
-            
-            // Hide warning dan enable tombol setelah download
-            setTimeout(() => {
-                document.getElementById('setupWarning').style.display = 'none';
-                checkServiceWorker();
-            }, 1000);
-        }
+        async function autoSetup() {
+            updateStep(1, true);
+            addLog('🔄 Memulai auto setup...');
 
-        // Cek dukungan Service Worker dan Notification
-        async function checkServiceWorker() {
-            if ('serviceWorker' in navigator && 'Notification' in window) {
+            try {
+                // Step 1: Cek support
+                if (!('serviceWorker' in navigator)) {
+                    throw new Error('Browser tidak mendukung Service Worker');
+                }
+
+                updateStep(1, true);
+                addLog('✅ Browser mendukung Service Worker');
+
+                // Step 2: Buat dan register Service Worker menggunakan data URL
+                updateStep(2, true);
+                addLog('🔄 Membuat Service Worker...');
+
+                // Buat base64 encoded data URL
+                const swBlob = new Blob([SERVICE_WORKER_CODE], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(swBlob);
+
                 try {
-                    // Coba register service worker
-                    const registration = await navigator.serviceWorker.register('/sw.js', {
-                        scope: '/'
-                    });
-                    
-                    console.log('Service Worker registered:', registration);
-                    document.getElementById('swStatus').textContent = 'Ready';
-                    document.getElementById('swStatus').className = 'status-badge badge-success';
-                    document.getElementById('enableBtn').disabled = false;
-                    document.getElementById('setupWarning').style.display = 'none';
-                    
-                    // Cek permission yang sudah ada
-                    if (Notification.permission === 'granted') {
-                        updateUIState(true);
-                        loadNotificationCount();
-                        startNotificationSchedule();
+                    // Unregister semua SW yang ada
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for (let registration of registrations) {
+                        await registration.unregister();
                     }
 
-                    // Listen untuk message dari service worker
+                    // Register SW baru dengan scope yang tepat
+                    const registration = await navigator.serviceWorker.register(swUrl, {
+                        scope: './'
+                    });
+
+                    await navigator.serviceWorker.ready;
+                    
+                    updateStep(2, true);
+                    addLog('✅ Service Worker berhasil terdaftar');
+
+                    // Step 3: Setup listener
+                    updateStep(3, true);
                     navigator.serviceWorker.addEventListener('message', (event) => {
                         if (event.data.type === 'notification-sent') {
                             incrementNotificationCount();
                         }
                     });
 
-                } catch (error) {
-                    console.error('Service Worker registration failed:', error);
-                    document.getElementById('swStatus').textContent = 'Failed';
-                    document.getElementById('swStatus').className = 'status-badge badge-danger';
+                    addLog('✅ Setup selesai! Silakan aktifkan notifikasi.');
                     
-                    if (error.message.includes('not found')) {
-                        addLog('❌ File sw.js tidak ditemukan. Silakan download dan simpan di folder yang sama.');
-                    } else {
-                        addLog('❌ Error: ' + error.message);
+                    document.getElementById('setupSection').style.display = 'none';
+                    document.getElementById('swStatus').textContent = 'Ready';
+                    document.getElementById('swStatus').className = 'status-badge badge-success';
+                    document.getElementById('enableBtn').disabled = false;
+
+                    // Cek permission
+                    if (Notification.permission === 'granted') {
+                        updateUIState(true);
+                        loadNotificationCount();
                     }
+
+                } catch (error) {
+                    // Jika gagal dengan blob URL, coba metode alternatif
+                    addLog('⚠️ Mencoba metode alternatif...');
+                    await setupWithInlineWorker();
                 }
-            } else {
-                document.getElementById('swStatus').textContent = 'Not Supported';
+
+            } catch (error) {
+                console.error('Setup error:', error);
+                addLog('❌ Error: ' + error.message);
+                document.getElementById('swStatus').textContent = 'Error';
                 document.getElementById('swStatus').className = 'status-badge badge-danger';
             }
         }
 
-        // Cek saat load
-        window.addEventListener('load', () => {
-            checkServiceWorker();
-        });
+        async function setupWithInlineWorker() {
+            // Metode alternatif: gunakan inline worker dengan navigator.serviceWorker API
+            const base64SW = btoa(unescape(encodeURIComponent(SERVICE_WORKER_CODE)));
+            const dataUrl = `data:application/javascript;base64,${base64SW}`;
+            
+            try {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+
+                const registration = await navigator.serviceWorker.register(dataUrl, {
+                    scope: './'
+                });
+
+                await navigator.serviceWorker.ready;
+
+                updateStep(3, true);
+                addLog('✅ Setup berhasil dengan metode alternatif!');
+                
+                document.getElementById('setupSection').style.display = 'none';
+                document.getElementById('swStatus').textContent = 'Ready';
+                document.getElementById('swStatus').className = 'status-badge badge-success';
+                document.getElementById('enableBtn').disabled = false;
+
+                navigator.serviceWorker.addEventListener('message', (event) => {
+                    if (event.data.type === 'notification-sent') {
+                        incrementNotificationCount();
+                    }
+                });
+
+                if (Notification.permission === 'granted') {
+                    updateUIState(true);
+                    loadNotificationCount();
+                }
+
+            } catch (error) {
+                throw new Error('Semua metode setup gagal. Pastikan menggunakan HTTPS atau localhost.');
+            }
+        }
+
+        function updateStep(stepNum, active) {
+            const step = document.getElementById(`step${stepNum}`);
+            if (active) step.classList.add('active');
+        }
 
         async function enableNotifications() {
             try {
-                // Minta permission
                 const permission = await Notification.requestPermission();
                 
                 if (permission === 'granted') {
-                    // Dapatkan service worker registration
                     const registration = await navigator.serviceWorker.ready;
-                    
-                    // Kirim message untuk mulai notifikasi
                     registration.active.postMessage({ type: 'start-notifications' });
                     
                     updateUIState(true);
                     addLog('✅ Notifikasi berhasil diaktifkan');
-                    
-                    // Mulai schedule notifikasi di client side juga
-                    startNotificationSchedule();
+                    addLog('⏰ Notifikasi akan muncul setiap 2 jam');
                     
                 } else if (permission === 'denied') {
-                    alert('❌ Permission ditolak. Silakan aktifkan notifikasi di pengaturan browser Anda.');
+                    alert('❌ Permission ditolak. Aktifkan di pengaturan browser.');
                 } else {
-                    alert('⚠️ Permission dibatalkan. Klik tombol lagi untuk mengaktifkan.');
+                    alert('⚠️ Permission dibatalkan.');
                 }
             } catch (error) {
-                console.error('Error enabling notifications:', error);
-                alert('Terjadi kesalahan: ' + error.message);
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
             }
-        }
-
-        function startNotificationSchedule() {
-            // Clear timer yang ada
-            if (notificationTimer) {
-                clearInterval(notificationTimer);
-            }
-            
-            // Set interval untuk mengirim notifikasi setiap 2 jam
-            notificationTimer = setInterval(async () => {
-                const registration = await navigator.serviceWorker.ready;
-                registration.active.postMessage({ type: 'test-notification' });
-            }, 2 * 60 * 60 * 1000); // 2 jam
         }
 
         async function sendTestNotification() {
-            const registration = await navigator.serviceWorker.ready;
-            registration.active.postMessage({ type: 'test-notification' });
-            addLog('🧪 Test notifikasi dikirim');
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                registration.active.postMessage({ type: 'test-notification' });
+                addLog('🧪 Test notifikasi dikirim');
+            } catch (error) {
+                addLog('❌ Error test: ' + error.message);
+            }
         }
 
         async function disableNotifications() {
-            const registration = await navigator.serviceWorker.ready;
-            registration.active.postMessage({ type: 'stop-notifications' });
-            
-            // Clear timer
-            if (notificationTimer) {
-                clearInterval(notificationTimer);
-                notificationTimer = null;
+            try {
+                const registration = await navigator.serviceWorker.ready;
+                registration.active.postMessage({ type: 'stop-notifications' });
+                updateUIState(false);
+                addLog('🔴 Notifikasi dinonaktifkan');
+            } catch (error) {
+                addLog('❌ Error disable: ' + error.message);
             }
-            
-            updateUIState(false);
-            addLog('🔴 Notifikasi dinonaktifkan');
         }
 
         function updateUIState(enabled) {
@@ -520,7 +583,7 @@ self.addEventListener('notificationclose', (event) => {
             notificationCount++;
             localStorage.setItem('notificationCount', notificationCount);
             document.getElementById('notifCount').textContent = notificationCount;
-            addLog(`📨 Notifikasi #${notificationCount} terkirim - ${new Date().toLocaleString('id-ID')}`);
+            addLog(`📨 Notifikasi #${notificationCount} - ${new Date().toLocaleTimeString('id-ID')}`);
         }
 
         function loadNotificationCount() {
@@ -537,21 +600,37 @@ self.addEventListener('notificationclose', (event) => {
             logItem.className = 'log-item';
             logItem.textContent = message;
             
-            if (logContainer.firstChild && logContainer.firstChild.textContent === 'Belum ada notifikasi yang dikirim') {
+            if (logContainer.firstChild && logContainer.firstChild.textContent === 'Menunggu setup...') {
                 logContainer.innerHTML = '';
             }
             
             logContainer.insertBefore(logItem, logContainer.firstChild);
             
-            // Batasi log maksimal 10 item
             while (logContainer.children.length > 10) {
                 logContainer.removeChild(logContainer.lastChild);
             }
         }
+
+        // Auto check on load
+        window.addEventListener('load', async () => {
+            loadNotificationCount();
+            
+            // Cek apakah sudah ada SW terdaftar
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                if (registrations.length > 0) {
+                    document.getElementById('setupSection').style.display = 'none';
+                    document.getElementById('swStatus').textContent = 'Ready';
+                    document.getElementById('swStatus').className = 'status-badge badge-success';
+                    document.getElementById('enableBtn').disabled = false;
+                    addLog('✅ Service Worker sudah terdaftar');
+
+                    if (Notification.permission === 'granted') {
+                        updateUIState(true);
+                    }
+                }
+            }
+        });
     </script>
 </body>
-
 </html>
-
-
-
