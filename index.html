@@ -393,7 +393,7 @@ self.addEventListener('notificationclose', (event) => {
             if ('serviceWorker' in navigator && 'Notification' in window) {
                 try {
                     // Coba register service worker
-                    const registration = await navigator.serviceWorker.register('/PUSHNOTIFICATION/sw.js', {
+                    const registration = await navigator.serviceWorker.register('/sw.js', {
                         scope: '/'
                     });
                     
@@ -552,5 +552,6 @@ self.addEventListener('notificationclose', (event) => {
 </body>
 
 </html>
+
 
 
