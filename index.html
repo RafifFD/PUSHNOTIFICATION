@@ -327,28 +327,35 @@
                 return false;
             }
 
-            // Mobile Android biasanya butuh Service Worker
-            if (device.isAndroid || device.isMobile) {
+            // PENTING: Mobile HARUS pakai Service Worker
+            // Cek apakah browser mobile yang butuh SW
+            const needsServiceWorker = device.isMobile || device.isAndroid || 
+                                      (/Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent));
+
+            if (needsServiceWorker) {
+                // Mobile device - WAJIB Service Worker
                 if ('serviceWorker' in navigator) {
                     try {
                         await registerServiceWorker();
                         usesServiceWorker = true;
-                        document.getElementById('notificationMethod').textContent = 'Service Worker (Mobile)';
+                        document.getElementById('notificationMethod').textContent = 'Service Worker (Mobile Required)';
                         document.getElementById('keepAliveInfo').textContent = 'Notifikasi berjalan walau tab ditutup';
-                        addLog('✅ Menggunakan Service Worker untuk mobile');
+                        addLog('✅ Service Worker aktif (required untuk mobile)');
                     } catch (error) {
-                        addLog('⚠️ Service Worker gagal, mencoba metode alternatif');
-                        usesServiceWorker = false;
-                        document.getElementById('notificationMethod').textContent = 'Direct API (Fallback)';
-                        document.getElementById('keepAliveInfo').textContent = 'Tab harus tetap terbuka di background';
+                        addLog('❌ Service Worker gagal: ' + error.message);
+                        document.getElementById('systemStatus').textContent = 'Error';
+                        document.getElementById('systemStatus').className = 'status-badge badge-danger';
+                        showWarning('Service Worker diperlukan untuk mobile. Pastikan menggunakan HTTPS atau localhost.');
+                        return false;
                     }
                 } else {
-                    usesServiceWorker = false;
-                    document.getElementById('notificationMethod').textContent = 'Direct API';
-                    document.getElementById('keepAliveInfo').textContent = 'Tab harus tetap terbuka di background';
+                    document.getElementById('systemStatus').textContent = 'Not Supported';
+                    document.getElementById('systemStatus').className = 'status-badge badge-danger';
+                    showWarning('Browser mobile Anda tidak mendukung Service Worker');
+                    return false;
                 }
             } else {
-                // Desktop pakai direct API
+                // Desktop - bisa pakai Direct API
                 usesServiceWorker = false;
                 document.getElementById('notificationMethod').textContent = 'Direct API (Desktop)';
                 document.getElementById('keepAliveInfo').textContent = 'Tab harus tetap terbuka di background';
@@ -473,33 +480,59 @@ self.addEventListener('notificationclick', (e) => {
                     const sw = await navigator.serviceWorker.ready;
                     sw.active.postMessage({ type: isTest ? 'test' : 'start' });
                 } else {
-                    // Pakai Direct API
+                    // Pakai Direct API - dengan pengecekan
                     const title = isTest ? '🧪 Test Notifikasi' : '🔔 Notifikasi Terjadwal';
                     const body = isTest ? 'Test berhasil!' : 'Notifikasi otomatis setiap 2 jam';
                     
-                    const notification = new Notification(title, {
-                        body: body,
-                        icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
-                        badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
-                        vibrate: [200, 100, 200],
-                        tag: isTest ? 'test' : 'scheduled'
-                    });
+                    // Cek apakah constructor Notification bisa dipakai
+                    try {
+                        const notification = new Notification(title, {
+                            body: body,
+                            icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+                            badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+                            vibrate: [200, 100, 200],
+                            tag: isTest ? 'test' : 'scheduled'
+                        });
 
-                    notification.onclick = () => {
-                        window.focus();
-                        notification.close();
-                    };
+                        notification.onclick = () => {
+                            window.focus();
+                            notification.close();
+                        };
 
-                    setTimeout(() => notification.close(), 10000);
+                        setTimeout(() => notification.close(), 10000);
 
-                    if (!isTest) {
-                        incrementNotificationCount();
+                        if (!isTest) {
+                            incrementNotificationCount();
+                        }
+                        addLog(`📨 ${isTest ? 'Test' : 'Notifikasi #' + notificationCount} terkirim`);
+                    } catch (constructorError) {
+                        // Jika Notification constructor gagal, coba register SW emergency
+                        addLog('⚠️ Direct API gagal, mencoba Service Worker...');
+                        await registerServiceWorkerEmergency();
+                        usesServiceWorker = true;
+                        
+                        // Retry dengan SW
+                        const sw = await navigator.serviceWorker.ready;
+                        sw.active.postMessage({ type: isTest ? 'test' : 'start' });
                     }
-                    addLog(`📨 ${isTest ? 'Test' : 'Notifikasi #' + notificationCount} terkirim`);
                 }
             } catch (error) {
                 addLog('❌ Error: ' + error.message);
                 console.error('Notification error:', error);
+            }
+        }
+        
+        // Emergency SW registration jika direct API gagal
+        async function registerServiceWorkerEmergency() {
+            if (serviceWorkerRegistration) return;
+            
+            try {
+                await registerServiceWorker();
+                addLog('✅ Service Worker emergency berhasil');
+                document.getElementById('notificationMethod').textContent = 'Service Worker (Auto-Switch)';
+                document.getElementById('keepAliveInfo').textContent = 'Notifikasi berjalan walau tab ditutup';
+            } catch (error) {
+                throw new Error('Gagal mengaktifkan notifikasi: ' + error.message);
             }
         }
 
