@@ -214,6 +214,15 @@
             font-weight: 700;
             margin: 10px 0;
         }
+
+        .device-info {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 12px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -221,6 +230,11 @@
         <span class="emoji">🔔</span>
         <h1>Push Notification System</h1>
         <p class="subtitle">Notifikasi akan muncul setiap 2 jam sekali</p>
+
+        <div class="device-info" id="deviceInfo">
+            <strong>📱 Device:</strong> <span id="deviceType">Detecting...</span><br>
+            <strong>🔧 Method:</strong> <span id="notificationMethod">Detecting...</span>
+        </div>
 
         <div class="warning-box" id="warningBox" style="display: none;">
             <strong>⚠️ Penting:</strong>
@@ -238,20 +252,16 @@
                 <span class="status-badge badge-danger" id="notifStatus">Belum Diaktifkan</span>
             </div>
             <div class="status-item">
-                <span class="status-label">Browser Support:</span>
-                <span class="status-badge badge-warning" id="browserStatus">Checking...</span>
+                <span class="status-label">System Status:</span>
+                <span class="status-badge badge-warning" id="systemStatus">Initializing...</span>
             </div>
             <div class="status-item">
                 <span class="status-label">Notifikasi Terkirim:</span>
                 <span class="status-value" id="notifCount">0</span>
             </div>
-            <div class="status-item">
-                <span class="status-label">Tab Status:</span>
-                <span class="status-badge badge-info" id="tabStatus">Active</span>
-            </div>
         </div>
 
-        <button class="btn-primary" id="enableBtn" onclick="enableNotifications()">
+        <button class="btn-primary" id="enableBtn" onclick="enableNotifications()" disabled>
             Aktifkan Notifikasi
         </button>
         <button class="btn-secondary" id="testBtn" onclick="sendTestNotification()" disabled>
@@ -265,9 +275,8 @@
             <strong>ℹ️ Cara Kerja:</strong>
             1. Klik "Aktifkan Notifikasi" dan izinkan akses<br>
             2. Notifikasi akan muncul setiap 2 jam sekali<br>
-            3. <strong>Tab harus tetap terbuka</strong> di background<br>
-            4. Jangan tutup tab, cukup minimize browser<br>
-            5. Bekerja di semua device dan platform
+            3. <strong id="keepAliveInfo">Sistem akan tetap berjalan</strong><br>
+            4. Bekerja di semua device (Mobile & Desktop)
         </div>
 
         <div class="notification-log">
@@ -284,179 +293,265 @@
         let countdownTimer = null;
         let nextNotificationTime = null;
         let isEnabled = false;
+        let serviceWorkerRegistration = null;
+        let usesServiceWorker = false;
 
-        // Konfigurasi
         const NOTIFICATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 jam
         // const NOTIFICATION_INTERVAL = 10 * 1000; // 10 detik untuk testing
 
-        // Cek dukungan browser
-        function checkBrowserSupport() {
+        // Detect device type
+        function detectDevice() {
+            const ua = navigator.userAgent;
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+            const isAndroid = /Android/i.test(ua);
+            const isIOS = /iPhone|iPad|iPod/i.test(ua);
+            
+            let deviceType = 'Desktop';
+            if (isAndroid) deviceType = 'Android';
+            else if (isIOS) deviceType = 'iOS';
+            else if (isMobile) deviceType = 'Mobile';
+            
+            document.getElementById('deviceType').textContent = deviceType;
+            return { isMobile, isAndroid, isIOS, deviceType };
+        }
+
+        // Initialize system berdasarkan device
+        async function initializeSystem() {
+            const device = detectDevice();
+            
+            // Check notification support
             if (!('Notification' in window)) {
-                document.getElementById('browserStatus').textContent = 'Not Supported';
-                document.getElementById('browserStatus').className = 'status-badge badge-danger';
-                document.getElementById('enableBtn').disabled = true;
-                showWarning('Browser Anda tidak mendukung notifikasi. Gunakan Chrome, Firefox, atau Safari terbaru.');
+                document.getElementById('systemStatus').textContent = 'Not Supported';
+                document.getElementById('systemStatus').className = 'status-badge badge-danger';
+                showWarning('Browser tidak mendukung notifikasi');
                 return false;
             }
+
+            // Mobile Android biasanya butuh Service Worker
+            if (device.isAndroid || device.isMobile) {
+                if ('serviceWorker' in navigator) {
+                    try {
+                        await registerServiceWorker();
+                        usesServiceWorker = true;
+                        document.getElementById('notificationMethod').textContent = 'Service Worker (Mobile)';
+                        document.getElementById('keepAliveInfo').textContent = 'Notifikasi berjalan walau tab ditutup';
+                        addLog('✅ Menggunakan Service Worker untuk mobile');
+                    } catch (error) {
+                        addLog('⚠️ Service Worker gagal, mencoba metode alternatif');
+                        usesServiceWorker = false;
+                        document.getElementById('notificationMethod').textContent = 'Direct API (Fallback)';
+                        document.getElementById('keepAliveInfo').textContent = 'Tab harus tetap terbuka di background';
+                    }
+                } else {
+                    usesServiceWorker = false;
+                    document.getElementById('notificationMethod').textContent = 'Direct API';
+                    document.getElementById('keepAliveInfo').textContent = 'Tab harus tetap terbuka di background';
+                }
+            } else {
+                // Desktop pakai direct API
+                usesServiceWorker = false;
+                document.getElementById('notificationMethod').textContent = 'Direct API (Desktop)';
+                document.getElementById('keepAliveInfo').textContent = 'Tab harus tetap terbuka di background';
+                addLog('✅ Menggunakan Direct Notification API');
+            }
+
+            document.getElementById('systemStatus').textContent = 'Ready';
+            document.getElementById('systemStatus').className = 'status-badge badge-success';
+            document.getElementById('enableBtn').disabled = false;
             
-            document.getElementById('browserStatus').textContent = 'Supported';
-            document.getElementById('browserStatus').className = 'status-badge badge-success';
-            addLog('✅ Browser mendukung notifikasi');
+            loadSavedState();
             return true;
         }
 
-        // Load saved state
-        function loadSavedState() {
-            const saved = localStorage.getItem('notificationEnabled');
-            const count = localStorage.getItem('notificationCount');
-            const nextTime = localStorage.getItem('nextNotificationTime');
+        // Register Service Worker
+        async function registerServiceWorker() {
+            const swCode = `
+// Service Worker
+const INTERVAL = 2 * 60 * 60 * 1000;
+let intervalId = null;
 
-            if (count) {
-                notificationCount = parseInt(count);
-                document.getElementById('notifCount').textContent = notificationCount;
+self.addEventListener('install', (e) => {
+    console.log('[SW] Install');
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (e) => {
+    console.log('[SW] Activate');
+    e.waitUntil(clients.claim());
+});
+
+async function showNotif(isTest = false) {
+    const title = isTest ? '🧪 Test Notifikasi' : '🔔 Notifikasi Terjadwal';
+    const body = isTest ? 'Test berhasil!' : 'Notifikasi otomatis setiap 2 jam';
+    
+    await self.registration.showNotification(title, {
+        body: body,
+        icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+        badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+        vibrate: [200, 100, 200],
+        tag: isTest ? 'test' : 'scheduled',
+        data: { url: self.location.origin, time: Date.now() }
+    });
+    
+    const clients = await self.clients.matchAll();
+    clients.forEach(client => {
+        client.postMessage({ type: 'notification-sent', isTest: isTest });
+    });
+}
+
+function startSchedule() {
+    if (intervalId) clearInterval(intervalId);
+    showNotif(false);
+    intervalId = setInterval(() => showNotif(false), INTERVAL);
+}
+
+function stopSchedule() {
+    if (intervalId) clearInterval(intervalId);
+    self.registration.getNotifications().then(n => n.forEach(x => x.close()));
+}
+
+self.addEventListener('message', (e) => {
+    if (e.data.type === 'start') startSchedule();
+    else if (e.data.type === 'test') showNotif(true);
+    else if (e.data.type === 'stop') stopSchedule();
+});
+
+self.addEventListener('notificationclick', (e) => {
+    e.notification.close();
+    e.waitUntil(
+        clients.matchAll({ type: 'window' }).then(list => {
+            for (let c of list) {
+                if ('focus' in c) return c.focus();
             }
+            if (clients.openWindow) return clients.openWindow('/');
+        })
+    );
+});
+            `;
 
-            if (saved === 'true' && Notification.permission === 'granted') {
-                isEnabled = true;
-                updateUIState(true);
+            try {
+                // Unregister existing
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (let reg of regs) await reg.unregister();
+
+                // Register new one
+                const blob = new Blob([swCode], { type: 'application/javascript' });
+                const url = URL.createObjectURL(blob);
                 
-                if (nextTime) {
-                    nextNotificationTime = parseInt(nextTime);
-                    const now = Date.now();
-                    const remaining = nextNotificationTime - now;
-                    
-                    if (remaining > 0) {
-                        scheduleNextNotification(remaining);
-                        addLog('✅ Notifikasi dilanjutkan dari sesi sebelumnya');
-                    } else {
-                        startNotifications();
+                serviceWorkerRegistration = await navigator.serviceWorker.register(url, { scope: './' });
+                await navigator.serviceWorker.ready;
+                
+                // Listen for messages
+                navigator.serviceWorker.addEventListener('message', (event) => {
+                    if (event.data.type === 'notification-sent') {
+                        if (!event.data.isTest) {
+                            incrementNotificationCount();
+                        }
+                        addLog(`📨 ${event.data.isTest ? 'Test' : 'Notifikasi #' + notificationCount} terkirim`);
                     }
-                }
+                });
+
+                URL.revokeObjectURL(url);
+                addLog('✅ Service Worker terdaftar');
+                return true;
+            } catch (error) {
+                console.error('SW Error:', error);
+                throw error;
             }
         }
 
-        // Fungsi kirim notifikasi
-        function sendNotification(isTest = false) {
+        // Send notification
+        async function sendNotification(isTest = false) {
             if (Notification.permission !== 'granted') {
                 addLog('❌ Permission belum diberikan');
                 return;
             }
 
-            const title = isTest ? '🧪 Test Notifikasi' : '🔔 Notifikasi Terjadwal';
-            const body = isTest 
-                ? 'Ini adalah test notifikasi. Sistem bekerja dengan baik!' 
-                : 'Ini adalah notifikasi otomatis setiap 2 jam. Tetap produktif! 💪';
-
-            const options = {
-                body: body,
-                icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
-                badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
-                vibrate: [200, 100, 200, 100, 200],
-                tag: isTest ? 'test-notification' : 'scheduled-notification',
-                requireInteraction: false,
-                silent: false,
-                timestamp: Date.now(),
-                data: {
-                    url: window.location.href,
-                    time: new Date().toLocaleString('id-ID')
-                }
-            };
-
             try {
-                const notification = new Notification(title, options);
-                
-                notification.onclick = function(event) {
-                    event.preventDefault();
-                    window.focus();
-                    notification.close();
-                };
+                if (usesServiceWorker && serviceWorkerRegistration) {
+                    // Pakai Service Worker
+                    const sw = await navigator.serviceWorker.ready;
+                    sw.active.postMessage({ type: isTest ? 'test' : 'start' });
+                } else {
+                    // Pakai Direct API
+                    const title = isTest ? '🧪 Test Notifikasi' : '🔔 Notifikasi Terjadwal';
+                    const body = isTest ? 'Test berhasil!' : 'Notifikasi otomatis setiap 2 jam';
+                    
+                    const notification = new Notification(title, {
+                        body: body,
+                        icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+                        badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+                        vibrate: [200, 100, 200],
+                        tag: isTest ? 'test' : 'scheduled'
+                    });
 
-                notification.onshow = function() {
-                    addLog(`📨 ${isTest ? 'Test notifikasi' : 'Notifikasi #' + (notificationCount + 1)} berhasil dikirim`);
+                    notification.onclick = () => {
+                        window.focus();
+                        notification.close();
+                    };
+
+                    setTimeout(() => notification.close(), 10000);
+
                     if (!isTest) {
                         incrementNotificationCount();
                     }
-                };
-
-                notification.onerror = function() {
-                    addLog('❌ Gagal menampilkan notifikasi');
-                };
-
-                // Auto close setelah 10 detik
-                setTimeout(() => notification.close(), 10000);
-
+                    addLog(`📨 ${isTest ? 'Test' : 'Notifikasi #' + notificationCount} terkirim`);
+                }
             } catch (error) {
                 addLog('❌ Error: ' + error.message);
+                console.error('Notification error:', error);
             }
         }
 
-        // Schedule notifikasi berikutnya
+        // Schedule
         function scheduleNextNotification(delay = NOTIFICATION_INTERVAL) {
-            if (notificationTimer) {
-                clearTimeout(notificationTimer);
-            }
+            if (notificationTimer) clearTimeout(notificationTimer);
 
             nextNotificationTime = Date.now() + delay;
-            localStorage.setItem('nextNotificationTime', nextNotificationTime.toString());
+            localStorage.setItem('nextNotificationTime', nextNotificationTime);
 
             notificationTimer = setTimeout(() => {
                 sendNotification(false);
-                scheduleNextNotification(); // Schedule yang berikutnya
+                scheduleNextNotification();
             }, delay);
 
             startCountdown();
-            addLog(`⏰ Notifikasi berikutnya: ${new Date(nextNotificationTime).toLocaleTimeString('id-ID')}`);
+            addLog(`⏰ Berikutnya: ${new Date(nextNotificationTime).toLocaleTimeString('id-ID')}`);
         }
 
-        // Countdown timer
+        // Countdown
         function startCountdown() {
-            if (countdownTimer) {
-                clearInterval(countdownTimer);
-            }
-
+            if (countdownTimer) clearInterval(countdownTimer);
             document.getElementById('timerDisplay').style.display = 'block';
 
             countdownTimer = setInterval(() => {
-                if (!nextNotificationTime) {
-                    clearInterval(countdownTimer);
-                    return;
-                }
+                if (!nextNotificationTime) return;
 
-                const now = Date.now();
-                const remaining = nextNotificationTime - now;
-
+                const remaining = nextNotificationTime - Date.now();
                 if (remaining <= 0) {
                     document.getElementById('countdown').textContent = '00:00:00';
                     return;
                 }
 
-                const hours = Math.floor(remaining / (1000 * 60 * 60));
-                const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-                const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+                const h = Math.floor(remaining / 3600000);
+                const m = Math.floor((remaining % 3600000) / 60000);
+                const s = Math.floor((remaining % 60000) / 1000);
 
                 document.getElementById('countdown').textContent = 
-                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
             }, 1000);
         }
 
-        // Aktifkan notifikasi
+        // Enable notifications
         async function enableNotifications() {
             try {
-                if (Notification.permission === 'granted') {
-                    startNotifications();
-                    return;
-                }
-
                 const permission = await Notification.requestPermission();
                 
                 if (permission === 'granted') {
                     startNotifications();
-                } else if (permission === 'denied') {
-                    showWarning('Permission ditolak. Aktifkan notifikasi di pengaturan browser Anda.');
-                    addLog('❌ Permission ditolak oleh user');
                 } else {
-                    showWarning('Permission dibatalkan. Klik tombol lagi untuk mengaktifkan.');
-                    addLog('⚠️ Permission dibatalkan');
+                    showWarning('Permission ditolak atau dibatalkan');
+                    addLog('❌ Permission tidak diberikan');
                 }
             } catch (error) {
                 showWarning('Error: ' + error.message);
@@ -469,33 +564,28 @@
             localStorage.setItem('notificationEnabled', 'true');
             updateUIState(true);
             
-            // Kirim notifikasi pertama
             sendNotification(false);
             
-            // Schedule notifikasi berikutnya
-            scheduleNextNotification();
+            if (!usesServiceWorker) {
+                scheduleNextNotification();
+            }
             
-            addLog('✅ Notifikasi berhasil diaktifkan');
-            addLog('📅 Notifikasi akan muncul setiap 2 jam');
-            addLog('💡 Jangan tutup tab ini, cukup minimize browser');
+            addLog('✅ Notifikasi diaktifkan');
         }
 
-        // Test notifikasi
         function sendTestNotification() {
             sendNotification(true);
         }
 
-        // Nonaktifkan notifikasi
         function disableNotifications() {
-            if (notificationTimer) {
-                clearTimeout(notificationTimer);
-                notificationTimer = null;
+            if (usesServiceWorker && serviceWorkerRegistration) {
+                navigator.serviceWorker.ready.then(sw => {
+                    sw.active.postMessage({ type: 'stop' });
+                });
             }
 
-            if (countdownTimer) {
-                clearInterval(countdownTimer);
-                countdownTimer = null;
-            }
+            if (notificationTimer) clearTimeout(notificationTimer);
+            if (countdownTimer) clearInterval(countdownTimer);
 
             isEnabled = false;
             nextNotificationTime = null;
@@ -507,92 +597,82 @@
             addLog('🔴 Notifikasi dinonaktifkan');
         }
 
-        // Update UI state
         function updateUIState(enabled) {
             document.getElementById('enableBtn').disabled = enabled;
             document.getElementById('testBtn').disabled = !enabled;
             document.getElementById('disableBtn').disabled = !enabled;
             
-            const statusBadge = document.getElementById('notifStatus');
-            if (enabled) {
-                statusBadge.textContent = 'Aktif';
-                statusBadge.className = 'status-badge badge-success';
-            } else {
-                statusBadge.textContent = 'Nonaktif';
-                statusBadge.className = 'status-badge badge-danger';
-            }
+            const badge = document.getElementById('notifStatus');
+            badge.textContent = enabled ? 'Aktif' : 'Nonaktif';
+            badge.className = `status-badge badge-${enabled ? 'success' : 'danger'}`;
         }
 
-        // Increment counter
         function incrementNotificationCount() {
             notificationCount++;
-            localStorage.setItem('notificationCount', notificationCount.toString());
+            localStorage.setItem('notificationCount', notificationCount);
             document.getElementById('notifCount').textContent = notificationCount;
         }
 
-        // Show warning
+        function loadSavedState() {
+            const count = localStorage.getItem('notificationCount');
+            if (count) {
+                notificationCount = parseInt(count);
+                document.getElementById('notifCount').textContent = notificationCount;
+            }
+
+            const enabled = localStorage.getItem('notificationEnabled');
+            if (enabled === 'true' && Notification.permission === 'granted') {
+                isEnabled = true;
+                updateUIState(true);
+                
+                if (!usesServiceWorker) {
+                    const nextTime = localStorage.getItem('nextNotificationTime');
+                    if (nextTime) {
+                        nextNotificationTime = parseInt(nextTime);
+                        const remaining = nextNotificationTime - Date.now();
+                        if (remaining > 0) {
+                            scheduleNextNotification(remaining);
+                            addLog('✅ Sesi dilanjutkan');
+                        } else {
+                            startNotifications();
+                        }
+                    }
+                } else {
+                    // Restart service worker schedule
+                    navigator.serviceWorker.ready.then(sw => {
+                        sw.active.postMessage({ type: 'start' });
+                        addLog('✅ Service Worker dilanjutkan');
+                    });
+                }
+            }
+        }
+
         function showWarning(text) {
-            const warningBox = document.getElementById('warningBox');
-            const warningText = document.getElementById('warningText');
-            warningText.textContent = text;
-            warningBox.style.display = 'block';
+            document.getElementById('warningText').textContent = text;
+            document.getElementById('warningBox').style.display = 'block';
         }
 
-        // Add log
-        function addLog(message) {
-            const logContainer = document.getElementById('logContainer');
-            const logItem = document.createElement('div');
-            logItem.className = 'log-item';
-            const timestamp = new Date().toLocaleTimeString('id-ID');
-            logItem.textContent = `[${timestamp}] ${message}`;
+        function addLog(msg) {
+            const container = document.getElementById('logContainer');
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            const time = new Date().toLocaleTimeString('id-ID');
+            item.textContent = `[${time}] ${msg}`;
             
-            if (logContainer.firstChild && logContainer.firstChild.textContent === 'Menunggu aktivasi...') {
-                logContainer.innerHTML = '';
+            if (container.firstChild?.textContent === 'Menunggu aktivasi...') {
+                container.innerHTML = '';
             }
             
-            logContainer.insertBefore(logItem, logContainer.firstChild);
-            
-            while (logContainer.children.length > 15) {
-                logContainer.removeChild(logContainer.lastChild);
+            container.insertBefore(item, container.firstChild);
+            while (container.children.length > 15) {
+                container.removeChild(container.lastChild);
             }
         }
-
-        // Monitor tab visibility
-        document.addEventListener('visibilitychange', function() {
-            const tabStatus = document.getElementById('tabStatus');
-            if (document.hidden) {
-                tabStatus.textContent = 'Background';
-                tabStatus.className = 'status-badge badge-warning';
-                addLog('📱 Tab di-minimize (notifikasi tetap berjalan)');
-            } else {
-                tabStatus.textContent = 'Active';
-                tabStatus.className = 'status-badge badge-info';
-                addLog('📱 Tab aktif kembali');
-            }
-        });
-
-        // Monitor page unload
-        window.addEventListener('beforeunload', function(e) {
-            if (isEnabled) {
-                e.preventDefault();
-                e.returnValue = 'Notifikasi sedang berjalan. Yakin ingin menutup tab?';
-            }
-        });
 
         // Initialize
-        window.addEventListener('load', function() {
-            if (checkBrowserSupport()) {
-                loadSavedState();
-                addLog('🚀 Sistem siap digunakan');
-            }
+        window.addEventListener('load', () => {
+            initializeSystem();
         });
-
-        // Keep alive dengan periodic check
-        setInterval(() => {
-            if (isEnabled && notificationTimer) {
-                addLog('✓ Sistem berjalan normal');
-            }
-        }, 30 * 60 * 1000); // Log setiap 30 menit
     </script>
 </body>
 </html>
