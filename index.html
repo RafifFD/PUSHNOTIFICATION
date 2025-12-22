@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Push Notification Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .status {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .status-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-label {
+            color: #666;
+            font-size: 14px;
+        }
+
+        .status-value {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .badge-warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #5a6268;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover:not(:disabled) {
+            background: #c82333;
+        }
+
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #333;
+        }
+
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+            color: #2196F3;
+        }
+
+        .notification-log {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .log-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .log-item {
+            padding: 8px;
+            background: white;
+            border-radius: 5px;
+            margin-bottom: 5px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        .emoji {
+            font-size: 24px;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .warning-box {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            font-size: 13px;
+            color: #856404;
+        }
+
+        .warning-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <span class="emoji">🔔</span>
+        <h1>Push Notification System</h1>
+        <p class="subtitle">Notifikasi akan muncul setiap 2 jam sekali</p>
+
+        <div class="warning-box" id="setupWarning">
+            <strong>⚠️ Perlu Setup Awal:</strong>
+            Untuk Service Worker bekerja, simpan file ini dan buat file <code>sw.js</code> di folder yang sama. Klik tombol di bawah untuk download file Service Worker.
+        </div>
+
+        <button class="btn-primary" id="downloadSwBtn" onclick="downloadServiceWorker()">
+            📥 Download Service Worker (sw.js)
+        </button>
+
+        <div class="status">
+            <div class="status-item">
+                <span class="status-label">Status Notifikasi:</span>
+                <span class="status-badge badge-danger" id="notifStatus">Belum Diaktifkan</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Service Worker:</span>
+                <span class="status-badge badge-warning" id="swStatus">Checking...</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Notifikasi Terkirim:</span>
+                <span class="status-value" id="notifCount">0</span>
+            </div>
+        </div>
+
+        <button class="btn-primary" id="enableBtn" onclick="enableNotifications()" disabled>
+            Aktifkan Notifikasi
+        </button>
+        <button class="btn-secondary" id="testBtn" onclick="sendTestNotification()" disabled>
+            Test Notifikasi Sekarang
+        </button>
+        <button class="btn-danger" id="disableBtn" onclick="disableNotifications()" disabled>
+            Nonaktifkan Notifikasi
+        </button>
+
+        <div class="info-box">
+            <strong>ℹ️ Cara Kerja:</strong>
+            1. Download file sw.js dan simpan di folder yang sama<br>
+            2. Klik "Aktifkan Notifikasi" dan izinkan akses<br>
+            3. Notifikasi akan muncul setiap 2 jam sekali<br>
+            4. Notifikasi tetap berjalan walau web ditutup<br>
+            5. Bekerja di semua device (Android, iOS, Desktop)
+        </div>
+
+        <div class="notification-log">
+            <div class="log-title">📋 Log Notifikasi:</div>
+            <div id="logContainer">
+                <div class="log-item">Belum ada notifikasi yang dikirim</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let notificationCount = 0;
+        let notificationTimer = null;
+
+        // Service Worker Code untuk di-download
+        const SERVICE_WORKER_CODE = `// Service Worker untuk Push Notification
+const NOTIFICATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 jam dalam milidetik
+const NOTIFICATION_TAG = 'scheduled-notification';
+
+// Event saat service worker diinstall
+self.addEventListener('install', (event) => {
+    console.log('Service Worker installing...');
+    self.skipWaiting();
+});
+
+// Event saat service worker aktif
+self.addEventListener('activate', (event) => {
+    console.log('Service Worker activated');
+    event.waitUntil(clients.claim());
+});
+
+// Fungsi untuk mengirim notifikasi
+async function sendNotification() {
+    const options = {
+        body: 'Ini adalah notifikasi otomatis setiap 2 jam. Klik untuk membuka aplikasi.',
+        icon: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+        badge: 'https://cdn-icons-png.flaticon.com/512/3602/3602145.png',
+        vibrate: [200, 100, 200],
+        tag: NOTIFICATION_TAG,
+        requireInteraction: false,
+        data: {
+            timestamp: Date.now(),
+            url: self.location.origin
+        },
+        actions: [
+            {
+                action: 'open',
+                title: 'Buka Aplikasi'
+            },
+            {
+                action: 'close',
+                title: 'Tutup'
+            }
+        ]
+    };
+
+    try {
+        await self.registration.showNotification('🔔 Notifikasi Terjadwal', options);
+        
+        // Broadcast ke semua clients
+        const allClients = await clients.matchAll();
+        allClients.forEach(client => {
+            client.postMessage({
+                type: 'notification-sent',
+                timestamp: Date.now()
+            });
+        });
+
+        console.log('Notification sent at', new Date().toLocaleString());
+    } catch (error) {
+        console.error('Error showing notification:', error);
+    }
+}
+
+// Handle message dari main thread
+self.addEventListener('message', (event) => {
+    console.log('SW received message:', event.data);
+    
+    if (event.data.type === 'start-notifications') {
+        sendNotification(); // Kirim notifikasi pertama
+    } else if (event.data.type === 'test-notification') {
+        sendNotification();
+    } else if (event.data.type === 'stop-notifications') {
+        // Clear semua notifikasi yang ada
+        self.registration.getNotifications().then(notifications => {
+            notifications.forEach(notification => notification.close());
+        });
+    }
+});
+
+// Handle klik pada notifikasi
+self.addEventListener('notificationclick', (event) => {
+    event.notification.close();
+    
+    if (event.action === 'close') {
+        return;
+    }
+    
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true })
+            .then((clientList) => {
+                // Cek apakah ada window yang sudah terbuka
+                for (let client of clientList) {
+                    if ('focus' in client) {
+                        return client.focus();
+                    }
+                }
+                // Buka window baru jika tidak ada
+                if (clients.openWindow) {
+                    return clients.openWindow('/');
+                }
+            })
+    );
+});
+
+// Handle notifikasi ditutup
+self.addEventListener('notificationclose', (event) => {
+    console.log('Notification closed:', event.notification.tag);
+});
+`;
+
+        function downloadServiceWorker() {
+            const blob = new Blob([SERVICE_WORKER_CODE], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'sw.js';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            addLog('✅ File sw.js berhasil didownload. Simpan di folder yang sama dengan HTML ini.');
+            
+            // Hide warning dan enable tombol setelah download
+            setTimeout(() => {
+                document.getElementById('setupWarning').style.display = 'none';
+                checkServiceWorker();
+            }, 1000);
+        }
+
+        // Cek dukungan Service Worker dan Notification
+        async function checkServiceWorker() {
+            if ('serviceWorker' in navigator && 'Notification' in window) {
+                try {
+                    // Coba register service worker
+                    const registration = await navigator.serviceWorker.register('/sw.js', {
+                        scope: '/'
+                    });
+                    
+                    console.log('Service Worker registered:', registration);
+                    document.getElementById('swStatus').textContent = 'Ready';
+                    document.getElementById('swStatus').className = 'status-badge badge-success';
+                    document.getElementById('enableBtn').disabled = false;
+                    document.getElementById('setupWarning').style.display = 'none';
+                    
+                    // Cek permission yang sudah ada
+                    if (Notification.permission === 'granted') {
+                        updateUIState(true);
+                        loadNotificationCount();
+                        startNotificationSchedule();
+                    }
+
+                    // Listen untuk message dari service worker
+                    navigator.serviceWorker.addEventListener('message', (event) => {
+                        if (event.data.type === 'notification-sent') {
+                            incrementNotificationCount();
+                        }
+                    });
+
+                } catch (error) {
+                    console.error('Service Worker registration failed:', error);
+                    document.getElementById('swStatus').textContent = 'Failed';
+                    document.getElementById('swStatus').className = 'status-badge badge-danger';
+                    
+                    if (error.message.includes('not found')) {
+                        addLog('❌ File sw.js tidak ditemukan. Silakan download dan simpan di folder yang sama.');
+                    } else {
+                        addLog('❌ Error: ' + error.message);
+                    }
+                }
+            } else {
+                document.getElementById('swStatus').textContent = 'Not Supported';
+                document.getElementById('swStatus').className = 'status-badge badge-danger';
+            }
+        }
+
+        // Cek saat load
+        window.addEventListener('load', () => {
+            checkServiceWorker();
+        });
+
+        async function enableNotifications() {
+            try {
+                // Minta permission
+                const permission = await Notification.requestPermission();
+                
+                if (permission === 'granted') {
+                    // Dapatkan service worker registration
+                    const registration = await navigator.serviceWorker.ready;
+                    
+                    // Kirim message untuk mulai notifikasi
+                    registration.active.postMessage({ type: 'start-notifications' });
+                    
+                    updateUIState(true);
+                    addLog('✅ Notifikasi berhasil diaktifkan');
+                    
+                    // Mulai schedule notifikasi di client side juga
+                    startNotificationSchedule();
+                    
+                } else if (permission === 'denied') {
+                    alert('❌ Permission ditolak. Silakan aktifkan notifikasi di pengaturan browser Anda.');
+                } else {
+                    alert('⚠️ Permission dibatalkan. Klik tombol lagi untuk mengaktifkan.');
+                }
+            } catch (error) {
+                console.error('Error enabling notifications:', error);
+                alert('Terjadi kesalahan: ' + error.message);
+            }
+        }
+
+        function startNotificationSchedule() {
+            // Clear timer yang ada
+            if (notificationTimer) {
+                clearInterval(notificationTimer);
+            }
+            
+            // Set interval untuk mengirim notifikasi setiap 2 jam
+            notificationTimer = setInterval(async () => {
+                const registration = await navigator.serviceWorker.ready;
+                registration.active.postMessage({ type: 'test-notification' });
+            }, 2 * 60 * 60 * 1000); // 2 jam
+        }
+
+        async function sendTestNotification() {
+            const registration = await navigator.serviceWorker.ready;
+            registration.active.postMessage({ type: 'test-notification' });
+            addLog('🧪 Test notifikasi dikirim');
+        }
+
+        async function disableNotifications() {
+            const registration = await navigator.serviceWorker.ready;
+            registration.active.postMessage({ type: 'stop-notifications' });
+            
+            // Clear timer
+            if (notificationTimer) {
+                clearInterval(notificationTimer);
+                notificationTimer = null;
+            }
+            
+            updateUIState(false);
+            addLog('🔴 Notifikasi dinonaktifkan');
+        }
+
+        function updateUIState(enabled) {
+            document.getElementById('enableBtn').disabled = enabled;
+            document.getElementById('testBtn').disabled = !enabled;
+            document.getElementById('disableBtn').disabled = !enabled;
+            
+            const statusBadge = document.getElementById('notifStatus');
+            if (enabled) {
+                statusBadge.textContent = 'Aktif';
+                statusBadge.className = 'status-badge badge-success';
+            } else {
+                statusBadge.textContent = 'Nonaktif';
+                statusBadge.className = 'status-badge badge-danger';
+            }
+        }
+
+        function incrementNotificationCount() {
+            notificationCount++;
+            localStorage.setItem('notificationCount', notificationCount);
+            document.getElementById('notifCount').textContent = notificationCount;
+            addLog(`📨 Notifikasi #${notificationCount} terkirim - ${new Date().toLocaleString('id-ID')}`);
+        }
+
+        function loadNotificationCount() {
+            const saved = localStorage.getItem('notificationCount');
+            if (saved) {
+                notificationCount = parseInt(saved);
+                document.getElementById('notifCount').textContent = notificationCount;
+            }
+        }
+
+        function addLog(message) {
+            const logContainer = document.getElementById('logContainer');
+            const logItem = document.createElement('div');
+            logItem.className = 'log-item';
+            logItem.textContent = message;
+            
+            if (logContainer.firstChild && logContainer.firstChild.textContent === 'Belum ada notifikasi yang dikirim') {
+                logContainer.innerHTML = '';
+            }
+            
+            logContainer.insertBefore(logItem, logContainer.firstChild);
+            
+            // Batasi log maksimal 10 item
+            while (logContainer.children.length > 10) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+    </script>
+</body>
+</html>
