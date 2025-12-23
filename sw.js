@@ -64,25 +64,64 @@ async function showNotification(isTest = false) {
 function startSchedule() {
     console.log('[SW] Starting notification schedule with 30 SECOND interval...');
     
+    // Clear interval lama
     if (intervalId) {
         clearInterval(intervalId);
         console.log('[SW] Cleared previous interval');
     }
     
+    // Simpan waktu mulai
+    const startTime = Date.now();
+    console.log('[SW] Start time:', new Date(startTime).toLocaleString());
+    
     // Kirim notifikasi pertama LANGSUNG
-    console.log('[SW] Sending first notification NOW');
+    console.log('[SW] Sending FIRST notification NOW');
     showNotification(false);
     nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
     
-    // Schedule interval berikutnya
+    // Gunakan recursive setTimeout untuk lebih reliable
+    function scheduleNext() {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        const expectedTriggers = Math.floor(elapsed / NOTIFICATION_INTERVAL);
+        
+        console.log('[SW] Scheduling next notification...');
+        console.log('[SW] Time elapsed:', Math.floor(elapsed / 1000), 'seconds');
+        
+        setTimeout(() => {
+            console.log('[SW] ⏰ TIMER TRIGGERED! Sending notification...');
+            showNotification(false);
+            nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
+            
+            // Schedule berikutnya
+            scheduleNext();
+        }, NOTIFICATION_INTERVAL);
+    }
+    
+    // Mulai recursive schedule
+    scheduleNext();
+    
+    // Backup: setInterval sebagai fallback
     intervalId = setInterval(() => {
-        console.log('[SW] Interval triggered - sending notification');
+        console.log('[SW] 🔄 INTERVAL BACKUP triggered - sending notification');
         showNotification(false);
         nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
     }, NOTIFICATION_INTERVAL);
     
-    console.log('[SW] Schedule started. Next notification in 30 seconds');
+    console.log('[SW] ✅ Schedule started successfully!');
+    console.log('[SW] Next notification in 30 seconds');
     console.log('[SW] Interval ID:', intervalId);
+    
+    // Broadcast status ke clients
+    clients.matchAll().then(allClients => {
+        allClients.forEach(client => {
+            client.postMessage({
+                type: 'schedule-started',
+                interval: NOTIFICATION_INTERVAL,
+                nextTime: nextNotificationTime
+            });
+        });
+    });
 }
 
 function stopSchedule() {
