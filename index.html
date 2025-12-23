@@ -373,6 +373,12 @@
         <button class="btn-secondary" id="testBtn" onclick="sendTestNotification()" disabled>
             Test Notifikasi
         </button>
+        <button class="btn-secondary" onclick="debugServiceWorker()" style="background: #6610f2; color: white;">
+            🐛 Debug Service Worker
+        </button>
+        <button class="btn-secondary" onclick="checkNotificationSettings()" style="background: #ffc107; color: #333;">
+            🔍 Cek Pengaturan Notifikasi
+        </button>
         <button class="btn-secondary" onclick="forceUpdateSW()" style="background: #17a2b8;">
             🔄 Force Update Service Worker
         </button>
@@ -501,25 +507,64 @@ async function showNotification(isTest = false) {
 function startSchedule() {
     console.log('[SW] Starting notification schedule with 30 SECOND interval...');
     
+    // Clear interval lama
     if (intervalId) {
         clearInterval(intervalId);
         console.log('[SW] Cleared previous interval');
     }
     
+    // Simpan waktu mulai
+    const startTime = Date.now();
+    console.log('[SW] Start time:', new Date(startTime).toLocaleString());
+    
     // Kirim notifikasi pertama LANGSUNG
-    console.log('[SW] Sending first notification NOW');
+    console.log('[SW] Sending FIRST notification NOW');
     showNotification(false);
     nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
     
-    // Schedule interval berikutnya
+    // Gunakan recursive setTimeout untuk lebih reliable
+    function scheduleNext() {
+        const now = Date.now();
+        const elapsed = now - startTime;
+        const expectedTriggers = Math.floor(elapsed / NOTIFICATION_INTERVAL);
+        
+        console.log('[SW] Scheduling next notification...');
+        console.log('[SW] Time elapsed:', Math.floor(elapsed / 1000), 'seconds');
+        
+        setTimeout(() => {
+            console.log('[SW] ⏰ TIMER TRIGGERED! Sending notification...');
+            showNotification(false);
+            nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
+            
+            // Schedule berikutnya
+            scheduleNext();
+        }, NOTIFICATION_INTERVAL);
+    }
+    
+    // Mulai recursive schedule
+    scheduleNext();
+    
+    // Backup: setInterval sebagai fallback
     intervalId = setInterval(() => {
-        console.log('[SW] Interval triggered - sending notification');
+        console.log('[SW] 🔄 INTERVAL BACKUP triggered - sending notification');
         showNotification(false);
         nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
     }, NOTIFICATION_INTERVAL);
     
-    console.log('[SW] Schedule started. Next notification in 30 seconds');
+    console.log('[SW] ✅ Schedule started successfully!');
+    console.log('[SW] Next notification in 30 seconds');
     console.log('[SW] Interval ID:', intervalId);
+    
+    // Broadcast status ke clients
+    clients.matchAll().then(allClients => {
+        allClients.forEach(client => {
+            client.postMessage({
+                type: 'schedule-started',
+                interval: NOTIFICATION_INTERVAL,
+                nextTime: nextNotificationTime
+            });
+        });
+    });
 }
 
 function stopSchedule() {
@@ -649,6 +694,8 @@ self.addEventListener('sync', (event) => {
 
         // Handle SW messages
         function handleSWMessage(event) {
+            console.log('Message from SW:', event.data);
+            
             if (event.data.type === 'notification-sent') {
                 if (!event.data.isTest) {
                     incrementNotificationCount();
@@ -660,6 +707,9 @@ self.addEventListener('sync', (event) => {
                 if (isEnabled && !event.data.isTest) {
                     startCountdown();
                 }
+            } else if (event.data.type === 'schedule-started') {
+                addLog('✅ Schedule dimulai di Service Worker');
+                addLog(`⏰ Interval: ${event.data.interval / 1000} detik`);
             }
         }
 
@@ -732,6 +782,112 @@ self.addEventListener('sync', (event) => {
             } catch (error) {
                 addLog('❌ Error: ' + error.message);
             }
+        }
+
+        // Debug Service Worker
+        async function debugServiceWorker() {
+            addLog('🐛 Debugging Service Worker...');
+            
+            if (!swRegistration) {
+                addLog('❌ Service Worker tidak terdaftar');
+                return;
+            }
+            
+            try {
+                // Check SW state
+                if (swRegistration.active) {
+                    addLog('✅ SW State: ACTIVE');
+                } else if (swRegistration.installing) {
+                    addLog('⚠️ SW State: INSTALLING');
+                } else if (swRegistration.waiting) {
+                    addLog('⚠️ SW State: WAITING');
+                }
+                
+                // Send message to get status
+                const channel = new MessageChannel();
+                
+                channel.port1.onmessage = (event) => {
+                    const status = event.data;
+                    addLog('📊 SW Status:');
+                    addLog('  - Running: ' + (status.isRunning ? 'YES ✅' : 'NO ❌'));
+                    if (status.nextNotificationTime) {
+                        const nextDate = new Date(status.nextNotificationTime);
+                        addLog('  - Next: ' + nextDate.toLocaleTimeString());
+                    } else {
+                        addLog('  - Next: Not scheduled ❌');
+                    }
+                };
+                
+                swRegistration.active.postMessage(
+                    { type: 'get-status' },
+                    [channel.port2]
+                );
+                
+                // Wait a bit then check
+                setTimeout(() => {
+                    addLog('');
+                    addLog('💡 Kalau "Running: NO", coba:');
+                    addLog('1. Nonaktifkan notifikasi');
+                    addLog('2. Klik "Force Update SW"');
+                    addLog('3. Aktifkan notifikasi lagi');
+                }, 500);
+                
+            } catch (error) {
+                addLog('❌ Error: ' + error.message);
+            }
+        }
+
+        // Check notification settings
+        async function checkNotificationSettings() {
+            addLog('🔍 Mengecek pengaturan notifikasi...');
+            
+            // Check permission
+            addLog('📋 Permission: ' + Notification.permission);
+            
+            // Check if notifications are enabled
+            if (Notification.permission === 'granted') {
+                addLog('✅ Permission: GRANTED');
+            } else if (Notification.permission === 'denied') {
+                addLog('❌ Permission: DENIED - Aktifkan di pengaturan browser/HP');
+                showWarning('Notifikasi diblokir! Buka Settings > Apps > Chrome > Notifications');
+                return;
+            } else {
+                addLog('⚠️ Permission: DEFAULT - Belum diminta');
+            }
+            
+            // Check service worker
+            if (swRegistration) {
+                addLog('✅ Service Worker: Terdaftar');
+                
+                // Get notifications
+                const notifications = await swRegistration.getNotifications();
+                addLog('📊 Active notifications: ' + notifications.length);
+                
+                // Check if SW is active
+                if (swRegistration.active) {
+                    addLog('✅ Service Worker: ACTIVE');
+                } else {
+                    addLog('❌ Service Worker: NOT ACTIVE');
+                }
+            } else {
+                addLog('❌ Service Worker: Tidak terdaftar');
+            }
+            
+            // Device info
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+            addLog('📱 Device: ' + (isMobile ? 'Mobile' : 'Desktop'));
+            
+            // Browser info
+            const isChrome = /Chrome/.test(navigator.userAgent);
+            const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+            addLog('🌐 Browser: ' + (isChrome ? 'Chrome' : isSafari ? 'Safari' : 'Other'));
+            
+            addLog('');
+            addLog('💡 TIPS:');
+            addLog('1. Pastikan notifikasi tidak di-silent/DND mode');
+            addLog('2. Android: Settings > Apps > Chrome > Notifications > ON');
+            addLog('3. iOS: Settings > Safari > Notifications > Allow');
+            addLog('4. Cek apakah ada notifikasi yang muncul di notification center');
         }
 
         // Force update Service Worker
