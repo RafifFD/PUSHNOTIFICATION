@@ -1,20 +1,30 @@
-// Service Worker untuk Push Notification
-const INTERVAL = 2 * 60 * 60 * 1000; // 2 jam
+
+// ⏰ UBAH INTERVAL DISINI JUGA (harus sama dengan yang di HTML):
+// const NOTIFICATION_INTERVAL = 2 * 60 * 60 * 1000; // 2 jam (production)
+const NOTIFICATION_INTERVAL = 30 * 1000; // 30 detik (testing) ⚡
+const CACHE_NAME = 'notif-pwa-v2'; // Increment version untuk force update
 let intervalId = null;
+let nextNotificationTime = null;
 
 self.addEventListener('install', (event) => {
-    console.log('[SW] Installing...');
-    self.skipWaiting();
+    console.log('[SW] Installing... Version with 30 second interval');
+    self.skipWaiting(); // Force activate immediately
 });
 
 self.addEventListener('activate', (event) => {
-    console.log('[SW] Activated');
-    event.waitUntil(clients.claim());
+    console.log('[SW] Activated - 30 second interval active');
+    event.waitUntil(
+        clients.claim().then(() => {
+            console.log('[SW] All clients claimed');
+        })
+    );
 });
 
 async function showNotification(isTest = false) {
     const title = isTest ? '🧪 Test Notifikasi' : '🔔 Notifikasi Terjadwal';
-    const body = isTest ? 'Test notifikasi berhasil!' : 'Notifikasi otomatis setiap 2 jam. Tetap produktif! 💪';
+    const body = isTest 
+        ? 'Test notifikasi PWA berhasil!' 
+        : 'Reminder otomatis setiap 30 detik (testing mode)';
     
     const options = {
         body: body,
@@ -26,14 +36,17 @@ async function showNotification(isTest = false) {
         data: {
             url: self.location.origin,
             time: Date.now()
-        }
+        },
+        actions: [
+            { action: 'open', title: 'Buka App' },
+            { action: 'close', title: 'Tutup' }
+        ]
     };
 
     try {
         await self.registration.showNotification(title, options);
         
-        // Broadcast ke clients
-        const allClients = await clients.matchAll();
+        const allClients = await clients.matchAll({ includeUncontrolled: true });
         allClients.forEach(client => {
             client.postMessage({
                 type: 'notification-sent',
@@ -44,67 +57,96 @@ async function showNotification(isTest = false) {
         
         console.log('[SW] Notification sent:', new Date().toLocaleString());
     } catch (error) {
-        console.error('[SW] Error showing notification:', error);
+        console.error('[SW] Notification error:', error);
     }
 }
 
 function startSchedule() {
-    if (intervalId) clearInterval(intervalId);
+    console.log('[SW] Starting notification schedule with 30 SECOND interval...');
     
-    // Kirim notifikasi pertama
+    if (intervalId) {
+        clearInterval(intervalId);
+        console.log('[SW] Cleared previous interval');
+    }
+    
+    // Kirim notifikasi pertama LANGSUNG
+    console.log('[SW] Sending first notification NOW');
     showNotification(false);
+    nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
     
-    // Schedule notifikasi berikutnya
+    // Schedule interval berikutnya
     intervalId = setInterval(() => {
+        console.log('[SW] Interval triggered - sending notification');
         showNotification(false);
-    }, INTERVAL);
+        nextNotificationTime = Date.now() + NOTIFICATION_INTERVAL;
+    }, NOTIFICATION_INTERVAL);
     
-    console.log('[SW] Schedule started');
+    console.log('[SW] Schedule started. Next notification in 30 seconds');
+    console.log('[SW] Interval ID:', intervalId);
 }
 
 function stopSchedule() {
+    console.log('[SW] Stopping schedule...');
+    
     if (intervalId) {
         clearInterval(intervalId);
         intervalId = null;
     }
     
-    // Close semua notifikasi yang ada
+    nextNotificationTime = null;
+    
     self.registration.getNotifications().then(notifications => {
         notifications.forEach(notification => notification.close());
     });
-    
-    console.log('[SW] Schedule stopped');
 }
 
 self.addEventListener('message', (event) => {
-    console.log('[SW] Message received:', event.data.type);
+    console.log('[SW] Message received:', event.data);
     
     if (event.data.type === 'start') {
         startSchedule();
-    } else if (event.data.type === 'test') {
-        showNotification(true);
     } else if (event.data.type === 'stop') {
         stopSchedule();
+    } else if (event.data.type === 'test') {
+        showNotification(true);
+    } else if (event.data.type === 'get-status') {
+        event.ports[0].postMessage({
+            isRunning: intervalId !== null,
+            nextNotificationTime: nextNotificationTime
+        });
     }
 });
 
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
     
+    if (event.action === 'close') {
+        return;
+    }
+    
     event.waitUntil(
-        clients.matchAll({ type: 'window' }).then((clientList) => {
-            for (let client of clientList) {
-                if ('focus' in client) {
-                    return client.focus();
+        clients.matchAll({ type: 'window', includeUncontrolled: true })
+            .then((clientList) => {
+                for (let client of clientList) {
+                    if ('focus' in client) {
+                        return client.focus();
+                    }
                 }
-            }
-            if (clients.openWindow) {
-                return clients.openWindow('/');
-            }
-        })
+                if (clients.openWindow) {
+                    return clients.openWindow('/');
+                }
+            })
     );
 });
 
 self.addEventListener('notificationclose', (event) => {
     console.log('[SW] Notification closed');
+});
+
+// Keep alive - periodic sync
+self.addEventListener('sync', (event) => {
+    console.log('[SW] Background sync triggered');
+    if (event.tag === 'notification-sync') {
+        event.waitUntil(showNotification(false));
+    }
 });
